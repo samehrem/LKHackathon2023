@@ -4,6 +4,7 @@
 ###########LIBRARIES
 library(openxlsx)
 library(ggplot2)
+library(lm)
 ##########
 
 ###LIST OF FILES NEEDED FOR THIS PART
@@ -16,6 +17,9 @@ raw.phenotypes.day1.rep1 <- read.xlsx("/Users/6186130/Documents/LettuceKnow/Hack
 raw.phenotypes.day2.rep1 <- read.xlsx("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/phe_sat_rep1_2506.xlsx")
 raw.phenotypes.day1.rep2 <- read.xlsx("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/phe_sat_rep2_1106.xlsx")
 raw.phenotypes.day2.rep2 <- read.xlsx("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/phe_sat_rep2_2506.xlsx")
+##Combining reps
+raw.phenotypes.day1 <- rbind(raw.phenotypes.day1.rep1,raw.phenotypes.day1.rep2)
+raw.phenotypes.day2 <- rbind(raw.phenotypes.day2.rep1,raw.phenotypes.day2.rep2)
 
 #raw.phenotypes.X <- read.xlsx("PathToExcelSheet") ###Example script for if people want to upload their own phenotypes.
 
@@ -33,15 +37,25 @@ table(lk.subtype) #We look at what subtypes are represented in our set
 ##CODE PLOT ## Here Basten if you have code for that I am happy if you want to insert it here
 
 #Q3: What are the mean and median values per LK accession/Horticultural type/replicate?
+mean.d1 <- apply(raw.phenotypes.day1[,-c(1,412)],2,mean)
+mean.d2 <- apply(raw.phenotypes.day2.rep1[,-c(1,480)],2,mean)
+
+med.d1 <- apply(raw.phenotypes.day1[,-c(1,412)],2,median)
+med.d2 <- apply(raw.phenotypes.day2[,-c(1,480)],2,median)
 
 
 #####Calculating broad sense heritability (BSH)
 ## To get an estimate of how much environment and genetics contribute to trait variation we can calculate the
 ## broad sense heritability of our trait of interest. If we know the BSH, we can interpret GWAS results better.
 ## To calculate BSH, we need the raw phenotype values, including all replicates.
-## as well as mean and median phenotype values per accession.
 
-###INSERT CODE HERITABILITY CALC
+###@Basten, I hope this is the correct way....
+
+day1.res <- lm(raw.phenotypes.day1$height.mean~raw.phenotypes.day1$accession)
+day1.res.anova <- anova(day1.res)
+BSH <- day1.res.anova$`Mean Sq`[1]/(day1.res.anova$`Mean Sq`[1]+day1.res.anova$`Mean Sq`[2]) ##Make this a function and then apply?
+BSH
+
 
 ## Our phenotypes are not ready for GWAS yet. We need to normalise the trait (if needed) and prepare it
 ## to be used as an input for our GWAS script.
