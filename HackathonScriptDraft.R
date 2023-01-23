@@ -4,7 +4,6 @@
 ###########LIBRARIES
 library(openxlsx)
 library(ggplot2)
-library(lm)
 ##########
 
 ###LIST OF FILES NEEDED FOR THIS PART
@@ -30,7 +29,7 @@ nrow(raw.phenotypes.rep1) #Number of LK accessions
 
 #Q2: What are the distributions of our phenotypes (by horticultural type)?
 lk.ID <- read.xlsx("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/Species_info.xlsx") ###We load in information about the LK accessions
-lk.subtype <- lk.ID$Subgroup_SB[match(raw.phenotypes.day1.rep1$accession,lk.ID$LKID)] ###We extract the subtype information by LK ID
+lk.subtype <- lk.ID$Subgroup_SB[match(raw.phenotypes.rep1$accession,lk.ID$LKID)] ###We extract the subtype information by LK ID
 table(lk.subtype) #We look at what subtypes are represented in our set
 ##CODE PLOT ## Here Basten if you have code for that I am happy if you want to insert it here
 
@@ -101,11 +100,6 @@ library(dplyr)
 ## During GWAS we use linear models to test the association of a genetic variant (SNP,PAV,CNV,kmer) 
 ## with the trait of interest. For this workshop we run GWAS with SNPs.
 
-#Q1: Load the SNP file into R
-
-load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/obj_bgi.sat.snps.hck.out")
-snp.info <- sat.snps[,1:3]
-sat.snps <- sat.snps[,4:134]
 
 ##One important step is calculating a kinship matrix. The kinship matrix is used during the GWAS to correct
 ##for false positive associations by taking into account population structure. We can get an estimate of kinship
@@ -121,7 +115,7 @@ heatmap(letkin)
 ## Below you will find the GWAS script we will use.
 
 GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
-                 give.pval.output.in.R = F, maf.thr = 0.95) {
+                 give.pval.output.in.R = F, maf.thr = 0.95, snp.info) {
   
   ## Prep trait/phenotypes
   phenotype <- toString(phenotype.name)
@@ -138,15 +132,28 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   usemat <- usemat[,selc]
   letkin <- letkin[selc,selc]
   print(dim(letkin))
+  
+
   ## Filter again MAF 5%
   threshold <- round(ncol(usemat)*maf.thr, digits=0)
   print(threshold)
-  maf.filter.quick <- apply(usemat == 1,1,sum)> threshold  | apply(usemat == 0,1,sum) > threshold ### <-- this is quicker!
+  maf.filter.quick <- apply(usemat == 1,1,sum)> threshold  | apply(usemat == 3,1,sum) > threshold ### <-- this is quicker!
   print(paste0("SNPs falling within MAF >= ",(1-maf.thr)*100,"%" ))
   print(table(maf.filter.quick))
   usemat <- usemat[!maf.filter.quick,]
+  snp.info <- snp.info[!maf.filter.quick,]
   print("Genotype matrix filtered and transformed.")
   
+  ## Prune SNP set
+  phe.snp.cor <- cor(use.trait,t(usemat),use = "pairwise") ###Calculate correlation of SNPs
+  print("SNP correlation calculated.")
+  phe.snp.cor[is.na(phe.snp.cor)] <- 0 ##Set NAs to 0
+  
+  snp.selc <- abs(phe.snp.cor)>0.3 & !is.na(phe.snp.cor) 
+  usemat.pruned <- usemat[snp.selc,] ##Remove SNPs with an absolute correlation lower than 0.3
+  print("SNPs pruned")
+ 
+
   ### start mapping by making decomposition
   ID <- rownames(letkin) ; length(ID)
   cbind(ID,use.trait)
@@ -166,19 +173,37 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   # class(nnn)
   # class(usemat)
   ### GWAS with kinship
-  gassoc_gls <- matlm(as.numeric(use.trait) ~ nnn, nnn, pred =  t(usemat), ids = rownames(W), transform = W, batch_size = 1000, verbose = 2,cores = 1,stats_full = T)
-  gassoc_gls$trait.name <- phenotype
-  gassoc_gls$trait.noobs <- length(use.trait)
-  mrkno <- which.max(-log10(gassoc_gls$tab$pval))
+  gassoc_gls <- matlm(as.numeric(use.trait) ~ nnn, nnn, pred =  t(usemat.pruned), ids = rownames(W), transform = W, batch_size = 4000, verbose = 2,cores = 1,stats_full = T)
+  
+
+
+  ###Add SNPs we didnt test back
+  
+  lod <- rep(0,nrow(snp.info))
+  lod[snp.selc] <- -log10(gassoc_gls$tab$pval) ##Here we add the SNPs we tested, teh rest is 0
+  
+  zscore <- rep(0,length(snp.info))
+  zscore[snp.selc] <- gassoc_gls$tab$zscore ##Here we add the SNPs we tested, the rest is 0
+  
+  mrkno <- which.max(lod)
+  
+  se <- rep(0,nrow(snp.info))
+  se[snp.selc] <- gassoc_gls$tab$se ##Here we add the SNPs we tested, the rest is 0
+  
+  b <- rep(0,nrow(snp.info))
+  b[snp.selc] <- gassoc_gls$tab$b ##Here we add the SNPs we tested, the rest is 0
+
+  
   
   ###Save as integers
-  gassoc_gls$tab$pval <- as.integer(round(-log10(gassoc_gls$tab$pval)*10000,0))
-  gassoc_gls$tab$zscore <- as.integer(round(gassoc_gls$tab$zscore*10000,0))
-  gassoc_gls$tab$se <- as.integer(round(gassoc_gls$tab$se*10000,0))
-  gassoc_gls$tab$b <- as.integer(round(gassoc_gls$tab$b *10000,0))
-  gassoc_gls <- as.data.frame(gassoc_gls$tab)
+  gassoc_gls <- snp.info
+  gassoc_gls$pval <- as.integer(lod*10000) ##Saves space on disk
+  gassoc_gls$zscore <- as.integer(zscore*10000)
+  gassoc_gls$se <- as.integer(se*10000)
+  gassoc_gls$b <- as.integer(b *10000)
   save(gassoc_gls,file=paste(out.dir,"/GWAS_result_",phenotype,".out",sep=""))
   save(herit.mod,file=paste(out.dir,"/Heritability_estimate_",phenotype,".out",sep=""))
+  save(snp.info,file=paste(out.dir,"/SNP_info_",phenotype,".out",sep=""))
   cofac <- usemat[mrkno,]
   save(cofac,file=paste(out.dir,"/GWAS_cofac.out",sep=""))
   print("Results saved.")
@@ -201,10 +226,10 @@ rm(phenotypes.diff.mean)
 base.dir <- paste(main.dir, "BGI_",sep="") ##Indicate which variants were used
 
 #Load genotype object for GWAS mapping
-usemat <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/obj_bgi.sat.snps.hck.out")
+usemat <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/sat.snps.out")
 usemat <- eval(parse(text=usemat))
 snp.info <- usemat[,1:3]
-usemat <- usemat[,2:134]
+usemat <- data.matrix(usemat[,-c(1:3)])
 rm(sat.snps)
 
 
@@ -222,15 +247,15 @@ print(ncol(pheno))
 ## Prep sets for GWAS
 log.file.w <- file(paste(new.dir,"/","BGI_",trait,"_warning.log",sep=""),open="wt")
 sink(file=log.file.w,type="message")
-new_letkin <- matrix(as.numeric(letkin),ncol = ncol(letkin),byrow = T)
-letkin_in <- letkin[names(pheno[2,]),names(pheno[2,])] #In case we do not have information for all lines with this phenotype
-usemat_in <- usemat.ori[,names(pheno[2,])] #In case we do not have information for all lines with this phenotype
 
-GWAS(genotypes = usemat_in, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin_in, out.dir=new.dir,
-     maf.thr = 0.95,give.pval.output.in.R = F)
+letkin <- letkin[names(pheno[3,]),names(pheno[3,])] #In case we do not have information for all lines with this phenotype
+usemat<- usemat[,names(pheno[3,])] #In case we do not have information for all lines with this phenotype
+
+#GWAS(genotypes = usemat_in, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin_in, out.dir=new.dir,
+     #maf.thr = 0.95,give.pval.output.in.R = F)
 # or 
-GWAS.output <- GWAS(genotypes = usemat_in, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin_in, out.dir=new.dir,
-                    maf.thr = 0.95,give.pval.output.in.R = T)
+GWAS.output <- GWAS(genotypes = usemat, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin, out.dir=new.dir,
+                    maf.thr = 0.95,give.pval.output.in.R = T,snp.info=snp.info)
 
 sink(type="message")
 close(log.file.w)
@@ -239,7 +264,7 @@ print(paste("GWAS finished. Phenotype is ",trait,sep=""))
 #print(paste(nrow(pheno) - i," traits of ",nrow(pheno)," to go.",sep=""))
 lifecycle::last_lifecycle_warnings()
 
-plot(-log10(GWAS.output$pval/1e4))
+plot(GWAS.output$pval/1e4)
 
 #Q3: Plot the manhattan plots for the GWAS run 
 
