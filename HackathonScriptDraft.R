@@ -179,12 +179,13 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
 
   ###Add SNPs we didnt test back
   
-  lod <- rep(0,nrow(snp.info))
-  lod[snp.selc] <- -log10(gassoc_gls$tab$pval) ##Here we add the SNPs we tested, teh rest is 0
+  lod <- rep(0.9,nrow(snp.info))
+  lod[snp.selc] <- gassoc_gls$tab$pval##Here we add the SNPs we tested, teh rest is 0
   
-  zscore <- rep(0,length(snp.info))
+  zscore <- rep(0,nrow(snp.info))
+  print(table(is.na(zscore)))
   zscore[snp.selc] <- gassoc_gls$tab$zscore ##Here we add the SNPs we tested, the rest is 0
-  
+  print(table(is.na(zscore)))
   mrkno <- which.max(lod)
   
   se <- rep(0,nrow(snp.info))
@@ -197,13 +198,14 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   
   ###Save as integers
   gassoc_gls <- snp.info
-  gassoc_gls$pval <- as.integer(lod*10000) ##Saves space on disk
+  gassoc_gls$pval <- lod
   gassoc_gls$zscore <- as.integer(zscore*10000)
+  print(table(is.na(gassoc_gls$zscore)))
   gassoc_gls$se <- as.integer(se*10000)
   gassoc_gls$b <- as.integer(b *10000)
+  gassoc_gls$SNP <- paste(gassoc_gls$CHR,gassoc_gls$POS,sep="_")
   save(gassoc_gls,file=paste(out.dir,"/GWAS_result_",phenotype,".out",sep=""))
   save(herit.mod,file=paste(out.dir,"/Heritability_estimate_",phenotype,".out",sep=""))
-  save(snp.info,file=paste(out.dir,"/SNP_info_",phenotype,".out",sep=""))
   cofac <- usemat[mrkno,]
   save(cofac,file=paste(out.dir,"/GWAS_cofac.out",sep=""))
   print("Results saved.")
@@ -237,7 +239,7 @@ rm(sat.snps)
 load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/BGI_Sat_kinship.out")
 
 ###Input phenotype
-trait <- rownames(pheno)[3] 
+trait <- rownames(pheno)[2] 
 new.dir <- paste(base.dir,trait,sep="")
 dir.create(new.dir)
 print(colnames(pheno))
@@ -248,8 +250,8 @@ print(ncol(pheno))
 log.file.w <- file(paste(new.dir,"/","BGI_",trait,"_warning.log",sep=""),open="wt")
 sink(file=log.file.w,type="message")
 
-letkin <- letkin[names(pheno[3,]),names(pheno[3,])] #In case we do not have information for all lines with this phenotype
-usemat<- usemat[,names(pheno[3,])] #In case we do not have information for all lines with this phenotype
+letkin <- letkin[names(pheno[2,]),names(pheno[2,])] #In case we do not have information for all lines with this phenotype
+usemat<- usemat[,names(pheno[2,])] #In case we do not have information for all lines with this phenotype
 
 #GWAS(genotypes = usemat_in, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin_in, out.dir=new.dir,
      #maf.thr = 0.95,give.pval.output.in.R = F)
@@ -264,14 +266,39 @@ print(paste("GWAS finished. Phenotype is ",trait,sep=""))
 #print(paste(nrow(pheno) - i," traits of ",nrow(pheno)," to go.",sep=""))
 lifecycle::last_lifecycle_warnings()
 
-plot(GWAS.output$pval/1e4)
 
 #Q3: Plot the manhattan plots for the GWAS run 
 
+##
 ##INSERT MANHATTAN PLOT CODE
 
+library(qqman)
+library(dplyr)
+load("/Users/6186130/Documents/LettuceKnow/LKHackathon2023/GWAS_Results/BGI_relgreen.mean/GWAS_result_relgreen.mean.out")
+bf <- -log10(0.05/nrow(gassoc_gls)) #Bonferroni threshold
+gassoc_gls$POS <- gassoc_gls$POS/1000000
+gassoc_gls <- gassoc_gls[-log10(gassoc_gls$pval) >1,]
 
-
+manhattan(gassoc_gls,snp="SNP",chr="CHR",bp = "POS",p = "pval",logp = T,suggestiveline = F,
+          genomewideline = bf,annotatePval = bf,col = c("royalblue4","skyblue"))
 
 ##############NEW SCRIPT############### GWAS Follow up
 
+##Now that we have a locus (or more) that is associated with our phenotype of interest, we can go further
+##by investigating what genes we find within these loci.
+
+
+
+##Load gene annotation file
+gene.anno <- read.delim("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/20221208_Lactuca_sativa.annotation_overview.tsv")
+
+gassoc_gls_sig <- gassoc_gls[-log10(gassoc_gls$pval) > bf,]
+peak <- do.call(data.frame,aggregate(POS ~ CHR, gassoc_gls_sig, function(x){ c(min(x),max(x))}))
+
+test <- apply(peak,1,function (x) {
+  chromosome <- as.character(x[1])
+  start.pos <- x[2]-0.1
+  end.pos <- x[3]+0.1
+  locus.info <- gene.anno[gene.anno$chromosome.number == chromosome & 
+              between(gene.anno$start.sequence/1e6,start.pos,end.pos),]})
+test <- do.call(rbind,test)
