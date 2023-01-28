@@ -84,7 +84,7 @@ BSH <- (pheno.res.anova$`Mean Sq`[1]-pheno.res.anova$`Mean Sq`[2])/(pheno.res.an
 BSH
 
 
-## Our phenotypes are not ready for GWAS yet. We need to normalize the trait (if needed) and prepare it
+## Our phenotypes are not ready for GWAS yet. We need to normalize the trait (if needed),remove outliers and prepare it
 ## to be used as an input for our GWAS script. For now we will create a phenotype matrix where rows are the phenotypes
 ## and columns are the LK accessions
 
@@ -92,13 +92,27 @@ BSH
 #Q3: What type of measurement do we have? It can be counts, ratios, binary/ordinal values or 
 ## quantitative measurements.We have replicates so we also have to first take the average across the replicates
 
-phenotypes.diff.mean <- (raw.phenotypes.rep1[,-1]+raw.phenotypes.rep2[,-1])/2
-rownames(phenotypes.diff.mean) <- raw.phenotypes.rep1$accession
-phenotypes.diff.mean <- t(phenotypes.diff.mean) #We move the table around so each row is a phenotype
+phenotypes.mean <- (raw.phenotypes.rep1[,-1]+raw.phenotypes.rep2[,-1])/2
+rownames(phenotypes.mean) <- raw.phenotypes.rep1$accession
+phenotypes.mean <- t(phenotypes.mean)
+##Since we have quantitative daya
+##We can create histograms per phenotype to check the distribution again
+apply(phenotypes.mean,1,hist,breaks=50)
+##We might see some non-normal distribution, and outliers. We can remove outliers that deviate more than 2 standard deviations from the mean.
+
+sd.per.pheno <- apply(phenotypes.mean,1,sd)
+mean.per.pheno <- apply(phenotypes.mean,1,mean)
+
+for (i in 1:nrow(phenotypes.mean)){
+  outliers <- phenotypes.mean[i,] > mean.per.pheno[i]+2*sd.per.pheno[i]|phenotypes.mean[i,] < mean.per.pheno[i]-2*sd.per.pheno[i]
+  phenotypes.mean[i,outliers] <- NA
+}
+apply(phenotypes.mean,1,hist,breaks=50) ##Check how it changed
+
 
 #Q4: Save phenotype file as input file for GWAS script.
 
-save(phenotypes.diff.mean,file="./phenotypes_for_GWAS.out")
+save(phenotypes.mean,file="./phenotypes_for_GWAS.out")
 
 ############NEW SCRIPT ####################Running GWAS on our phenotypes
 ##Libraries
@@ -165,11 +179,12 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   usemat <- usemat[,selc]
   letkin <- letkin[selc,selc]
   print(dim(letkin))
+  print(dim(usemat))
 
   ## Filter again MAF 5%
   threshold <- round(ncol(usemat)*maf.thr, digits=0)
   print(threshold)
-  maf.filter.quick <- apply(usemat == 1,1,sum)> threshold  | apply(usemat == 3,1,sum) > threshold ### <-- this is quicker!
+  maf.filter.quick <- apply(usemat == 1,1,sum)> threshold  | apply(usemat == 3,1,sum) > threshold
   print(paste0("SNPs falling within MAF >= ",(1-maf.thr)*100,"%" ))
   print(table(maf.filter.quick))
   usemat <- usemat[!maf.filter.quick,]
@@ -254,13 +269,13 @@ dir.create(main.dir)
 ###INPUT
 
 #### Load phenotype data
-pheno <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/phenotypes_for_GWAS.out")
+pheno <- load("./phenotypes_for_GWAS.out")
 pheno <- eval(parse(text=pheno))
-rm(phenotypes.diff.mean)
+rm(phenotypes.mean)
 base.dir <- paste(main.dir, "BGI_",sep="") ##Indicate which variants were used
 
 #Load genotype object for GWAS mapping
-usemat <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/sat.snps.out")
+usemat <- load("./sat.snps.out")
 usemat <- eval(parse(text=usemat))
 snp.info <- usemat[,1:3]
 usemat <- data.matrix(usemat[,-c(1:3)])
@@ -268,10 +283,10 @@ rm(sat.snps)
 
 
 #Load kinship matrix
-load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/BGI_Sat_kinship.out")
+load("./BGI_Sat_kinship.out")
 
 ###Input phenotype
-trait <- rownames(pheno)[4] ###TODO:Here I could make it in a for loop...or let them choose by hand
+trait <- rownames(pheno)[1] ###TODO:Here I could make it in a for loop...or let them choose by hand
 new.dir <- paste(base.dir,trait,sep="")
 dir.create(new.dir)
 print(colnames(pheno))
@@ -282,8 +297,8 @@ print(ncol(pheno))
 log.file.w <- file(paste(new.dir,"/","BGI_",trait,"_warning.log",sep=""),open="wt")
 sink(file=log.file.w,type="message")
 
-letkin <- letkin[names(pheno[4,]),names(pheno[4,])] #In case we do not have information for all lines with this phenotype
-usemat<- usemat[,names(pheno[4,])] #In case we do not have information for all lines with this phenotype
+letkin <- letkin[names(pheno[trait,]),names(pheno[trait,])] #In case we do not have information for all lines with this phenotype
+usemat<- usemat[,names(pheno[trait,])] #In case we do not have information for all lines with this phenotype
 
 #GWAS(genotypes = usemat_in, trait = as.vector(pheno[trait,]), phenotype.name = trait, kinship=letkin_in, out.dir=new.dir,
      #maf.thr = 0.95,give.pval.output.in.R = F)
@@ -301,17 +316,35 @@ lifecycle::last_lifecycle_warnings()
 
 #Q3: Plot the manhattan plots for the GWAS run 
 
-##
-##INSERT MANHATTAN PLOT CODE
-
-
-load("/Users/6186130/Documents/LettuceKnow/LKHackathon2023/GWAS_Results/BGI_green.trimmed_mean_10.250621/GWAS_result_green.trimmed_mean_10.250621.out")
+load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/GWAS_Results/BGI_height.mean_diff/GWAS_result_height.mean_diff.out")
 bf <- -log10(0.05/nrow(gassoc_gls)) #Bonferroni threshold
 gassoc_gls$POS <- gassoc_gls$POS/1000000
 gassoc_gls.topl <- gassoc_gls[-log10(gassoc_gls$pval) >1,]
 
 manhattan(gassoc_gls.topl,snp="SNP",chr="CHR",bp = "POS",p = "pval",logp = T,suggestiveline = F,
           genomewideline = bf,annotatePval = bf,col = c("royalblue4","skyblue"))
+
+##We can also look at how the TopSNP behaves in relation to the phenotype, since we expect a linear relationship
+##Between alleles and phenotype.
+load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/GWAS_Results/BGI_height.mean_diff/GWAS_cofac.out")
+
+to.pl <- as.data.frame(cbind(pheno[1,match(names(cofac),colnames(pheno))],cofac))
+to.pl[,2] <- as.character(to.pl[,2])
+p <- ggplot(to.pl, aes(x=cofac, y=V1, fill=cofac)) +
+  geom_boxplot(notch=F)+
+  geom_jitter(position=position_jitter(0.1))+
+  ylab("Phenotype value")+
+  xlab("Allele status")+
+  ggtitle("Phenotype value against allele status of top SNP")+
+  annotate("label",
+           x = 1:length(table(to.pl$cofac)),
+           y = aggregate(V1 ~ cofac, to.pl, median)[ , 2],
+           label = table(to.pl$cofac),
+           col = "black",
+           fontface="bold")+
+  theme(legend.position = "none")
+
+p
 
 ##############NEW SCRIPT############### GWAS Follow up
 
