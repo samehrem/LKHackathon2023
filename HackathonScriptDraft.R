@@ -21,6 +21,7 @@ raw.phenotypes.rep2 <- read.xlsx("./Hackathon_Phenotypes_Rep2.xlsx")
 
 ##Combining replicates
 raw.phenotypes <- rbind(raw.phenotypes.rep1,raw.phenotypes.rep2) #rbind is a function that combines two tables by row
+#DJ: Do these files have headers? If so, are the combined correctly?
 
 #raw.phenotypes.X <- read.xlsx("PathToExcelSheet") ###Example if you want to load you own phenotypes
 
@@ -81,6 +82,8 @@ pheno.res <- lm(raw.phenotypes$green.trimmed_mean_10.250621~raw.phenotypes$acces
 pheno.res.anova <- anova(pheno.res)
 
 BSH <- (pheno.res.anova$`Mean Sq`[1]-pheno.res.anova$`Mean Sq`[2])/(pheno.res.anova$`Mean Sq`[1]+pheno.res.anova$`Mean Sq`[2])
+#DJ: Is there no easier way to do this? I'm thinking about maybe a library that does this for you?
+#DJ: Some possible libraries suggested by AI (not checked myself) are: heritability and agricolae
 BSH
 
 
@@ -95,6 +98,7 @@ BSH
 phenotypes.diff.mean <- (raw.phenotypes.rep1[,-1]+raw.phenotypes.rep2[,-1])/2
 rownames(phenotypes.diff.mean) <- raw.phenotypes.rep1$accession
 phenotypes.diff.mean <- t(phenotypes.diff.mean) #We move the table around so each row is a phenotype
+#DJ: There are easier ways to normalise data. I would suggest using the scale function from the base R library.
 
 #Q4: Save phenotype file as input file for GWAS script.
 
@@ -141,17 +145,22 @@ library(dplyr)
 
 
 load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/BGI_Sat_kinship.out")
+#DJ: Maybe use a relevant path here as well?
 heatmap(letkin)
+#DJ: This variable does not exist yet?
 
 ## We prepared our phenotype input and saved it as phenotypes_for_GWAS.out
 
 ## Below you will find the GWAS script we will use. First you run the function as a whole (Line X to Y). Then you can proceed.
+#DJ: If they simply do Ctrl+Enter on the start of the function definition, they will run the whole function.
+#DJ: (Instead of mentioning line numbers.)
 
 GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
                  give.pval.output.in.R = F, maf.thr = 0.95, snp.info) {
   
   ## Prep trait/phenotypes
   phenotype <- toString(phenotype.name)
+  #DJ: Haha didn't know this was possible in R too, I only know it from Java. I would have expected `as.character` here.
   letkin <- kinship
   usemat <- genotypes
   selc <- !is.na(trait) #Selects the lines with an observation (removes lines that have an NA)
@@ -167,6 +176,7 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   print(dim(letkin))
 
   ## Filter again MAF 5%
+  #DJ: this 5% is not hardcoded but taken from the maf.thr parameter! Also, I thought MAF should be the lowest of (1-MAF) and MAF? So 0.95 should be 0.05?
   threshold <- round(ncol(usemat)*maf.thr, digits=0)
   print(threshold)
   maf.filter.quick <- apply(usemat == 1,1,sum)> threshold  | apply(usemat == 3,1,sum) > threshold ### <-- this is quicker!
@@ -182,15 +192,17 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   phe.snp.cor[is.na(phe.snp.cor)] <- 0 ##Set NAs to 0
   
   snp.selc <- abs(phe.snp.cor)>0.3 & !is.na(phe.snp.cor) 
+  #DJ: Maybe put this 0.3 in as a parameter as well?
   usemat.pruned <- usemat[snp.selc,] ##Remove SNPs with an absolute correlation lower than 0.3
   print("SNPs pruned")
  
-
   ### start mapping by making decomposition
   ID <- rownames(letkin) ; length(ID)
   cbind(ID,use.trait)
   mod <- lme4qtl::relmatLmer(use.trait ~ (1|ID), relmat = list(ID = letkin))
+
   ##Calculate heritability
+  #DJ: Again?
   herit.mod <- lme4qtl::VarProp(mod)
   V <- lme4qtl::varcov(mod, idvar = "ID")
   V_thr <- V
@@ -204,10 +216,10 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
   # class(use.trait)
   # class(nnn)
   # class(usemat)
-  ### GWAS with kinship
-  gassoc_gls <- matlm(as.numeric(use.trait) ~ nnn, nnn, pred =  t(usemat.pruned), ids = rownames(W), transform = W, batch_size = 4000, verbose = 2,cores = 1,stats_full = T)
-  
 
+  ### GWAS with kinship
+  gassoc_gls <- matlm(as.numeric(use.trait) ~ nnn, nnn, pred =  t(usemat.pruned), ids = rownames(W), transform = W, batch_size = 4000, verbose = 2, cores = 1,stats_full = T)
+  #DJ: Since cores are mentioned, is it possible to multithread this?
 
   ###Add SNPs we didnt test back
   
@@ -248,6 +260,7 @@ GWAS <- function(genotypes, trait, phenotype.name, kinship, out.dir,
 
 ########################START SCRIPT#########################
 ext.dir <- "./"
+#DJ: This is not needed since it is the current directory?
 main.dir <- paste(ext.dir,"/GWAS_Results/",sep="")
 dir.create(main.dir)
 
@@ -255,12 +268,14 @@ dir.create(main.dir)
 
 #### Load phenotype data
 pheno <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/phenotypes_for_GWAS.out")
+#DJ: Don't hardcode paths
 pheno <- eval(parse(text=pheno))
 rm(phenotypes.diff.mean)
 base.dir <- paste(main.dir, "BGI_",sep="") ##Indicate which variants were used
 
 #Load genotype object for GWAS mapping
 usemat <- load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/sat.snps.out")
+#DJ: Don't hardcode paths
 usemat <- eval(parse(text=usemat))
 snp.info <- usemat[,1:3]
 usemat <- data.matrix(usemat[,-c(1:3)])
@@ -269,6 +284,7 @@ rm(sat.snps)
 
 #Load kinship matrix
 load("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/BGI_Sat_kinship.out")
+#DJ: Don't hardcode paths
 
 ###Input phenotype
 trait <- rownames(pheno)[4] ###TODO:Here I could make it in a for loop...or let them choose by hand
@@ -276,6 +292,7 @@ new.dir <- paste(base.dir,trait,sep="")
 dir.create(new.dir)
 print(colnames(pheno))
 pheno <- pheno[,colnames(pheno) %in% colnames(letkin)]
+#DJ: Just out of curiosity, why use %in% here and match() up above?
 print(ncol(pheno))
 
 ## Prep sets for GWAS
@@ -306,8 +323,10 @@ lifecycle::last_lifecycle_warnings()
 
 
 load("/Users/6186130/Documents/LettuceKnow/LKHackathon2023/GWAS_Results/BGI_green.trimmed_mean_10.250621/GWAS_result_green.trimmed_mean_10.250621.out")
+#DJ: Don't hardcode paths
 bf <- -log10(0.05/nrow(gassoc_gls)) #Bonferroni threshold
 gassoc_gls$POS <- gassoc_gls$POS/1000000
+#DJ: Why 1000000? Maybe explain this.
 gassoc_gls.topl <- gassoc_gls[-log10(gassoc_gls$pval) >1,]
 
 manhattan(gassoc_gls.topl,snp="SNP",chr="CHR",bp = "POS",p = "pval",logp = T,suggestiveline = F,
@@ -320,6 +339,7 @@ manhattan(gassoc_gls.topl,snp="SNP",chr="CHR",bp = "POS",p = "pval",logp = T,sug
 
 ##Load gene annotation file
 gene.anno <- read.delim("/Users/6186130/Documents/LettuceKnow/Hackathon_2023/Data/20221208_Lactuca_sativa.annotation_overview.tsv")
+#DJ: Don't hardcode paths
 
 gassoc_gls_sig <- gassoc_gls[-log10(gassoc_gls$pval) > bf,] ##Only choosing significant SNPs
 peak <- do.call(data.frame,aggregate(POS ~ CHR, gassoc_gls_sig, function(x){ c(min(x),max(x))})) #We extract the peaks per chromosome
@@ -375,6 +395,7 @@ mhpl <- ggplot(snp.cor.to.pl[between(snp.cor.to.pl$POS,92.5,93.2),],aes(POS,-log
             text=element_text(size=15))
   
 mhpl
+
 anno.plot <- ggplot(test[which(test$chromosome.number == as.character(locus))&between(test$start.sequence/1e6,92.5,93.2),])+
  geom_segment(aes(x=start.sequence/1e6, xend=stop.sequence/1e6, y=chromosome.number, yend=chromosome.number,color=type), 
               size=5,alpha=0.8)+
