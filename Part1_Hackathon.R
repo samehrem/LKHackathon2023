@@ -80,7 +80,7 @@ pheno.res <- lm(raw.phenotypes$green.trimmed_mean_10.250621~raw.phenotypes$acces
 pheno.res.anova <- anova(pheno.res)
 
 BSH <- (pheno.res.anova$`Mean Sq`[1]-pheno.res.anova$`Mean Sq`[2])/(pheno.res.anova$`Mean Sq`[1]+pheno.res.anova$`Mean Sq`[2])
-BSH
+print(paste("h2 is estimated to be: ",round(BSH*100,2),"%",sep=""))
 
 ## Our phenotypes are not ready for GWAS yet. We need to normalize the trait (if wanted),remove outliers and prepare it
 ## to be used as an input for our GWAS script. For now we will create a phenotype matrix where rows are the phenotypes
@@ -110,4 +110,4 @@ apply(phenotypes.mean,1,hist,breaks=50) ##Check how it changed
 
 #Save phenotype file as input file for GWAS script.
 
-save(phenotypes.mean,file="./phenotypes_for_GWAS.out")
+save(phenotypes.mean,file="./Data/phenotypes_for_GWAS.out")
