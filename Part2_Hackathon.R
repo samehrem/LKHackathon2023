@@ -173,7 +173,8 @@ load("./Data/BGI_Sat_kinship.out")
 trait <- rownames(pheno)[1]
 new.dir <- paste(base.dir,trait,sep="")
 dir.create(new.dir)
-pheno <- pheno[,match(colnames(pheno),colnames(letkin))]
+pheno <- pheno[,match(colnames(letkin),colnames(pheno))]
+pheno <- pheno[,!is.na(colnames(pheno))]
 
 ## Prep sets for GWAS
 log.file.w <- file(paste(new.dir,"/","BGI_",trait,"_warning.log",sep=""),open="wt")
@@ -198,7 +199,7 @@ lifecycle::last_lifecycle_warnings()
 
 load(paste("./GWAS_Results/BGI_",trait,"/GWAS_result_",trait,".out",sep=""))
 bf <- -log10(0.05/nrow(gassoc_gls)) #Bonferroni threshold
-gassoc_gls$POS <- gassoc_gls$POS/1000000  ##We divide here by 1 million to get Mbp instead of bp
+gassoc_gls$POS <- gassoc_gls$POS/1000000  ##We divide here by 1 million to get Mbp instead of bp, that is not needed, I just like the look.
 gassoc_gls.topl <- gassoc_gls[-log10(gassoc_gls$pval) >1,]
 
 manhattan(gassoc_gls.topl,snp="SNP",chr="CHR",bp = "POS",p = "pval",logp = T,suggestiveline = F,
